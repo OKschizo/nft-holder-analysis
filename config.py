@@ -9,6 +9,9 @@ load_dotenv()
 ALCHEMY_API_KEY = os.getenv('ALCHEMY_API_KEY', 'YOUR_API_KEY_HERE')
 ALCHEMY_BASE_URL = f"https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 
+# Web3 RPC endpoint for Multicall
+WEB3_RPC_URL = f"https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+
 # NFT Contract Addresses
 NFT_CONTRACTS = {
     'Milady': '0x5Af0D9827E0c53E4799BB226655A1de152A425a5',

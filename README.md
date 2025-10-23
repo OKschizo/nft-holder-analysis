@@ -23,16 +23,31 @@ ALCHEMY_API_KEY = 'YOUR_API_KEY_HERE'
 - Copy API key
 
 ### 3. Run Full Analysis
+
+**Choose your analyzer:**
+
+#### Option A: Alchemy Portfolio API (Fastest, Recommended)
 ```bash
 python rescrape_all.py
 ```
+- ⚡ **~2 minutes** for 9,000 wallets
+- ✅ Auto-discovers ALL tokens
+- ✅ Simple & reliable
+- ✅ Best for general use
 
-This will:
+#### Option B: Multicall (Most Comprehensive)
+```bash
+python rescrape_multicall.py
+```
+- ⚡ **~15-30 minutes** for 9,000 wallets
+- ✅ Queries **41 specific tokens** (13 stablecoins + 28 receipt tokens)
+- ✅ Includes yield-bearing tokens (aUSDC, cDAI, yvUSDC, etc.)
+- ✅ Best for exhaustive analysis
+
+Both will:
 1. ✅ Fetch all NFT holders (Milady + CryptoPunks)
 2. ✅ Analyze wallet balances (ETH + stablecoins)
 3. ✅ Store everything in local database
-
-**Time:** ~2 minutes for 9,000+ wallets
 
 ### 4. View Dashboard
 ```bash
@@ -51,9 +66,14 @@ Opens at: **http://localhost:8501**
 
 ### Data Collection
 - ✅ **NFT Holders**: Fetches all current holders for specified collections
-- ✅ **Wallet Analysis**: Analyzes ETH + stablecoin balances (USDC, USDT, DAI, BUSD, FRAX, USDD)
+- ✅ **Wallet Analysis**: Two powerful analyzers:
+  - **Alchemy API**: Auto-discovers all tokens (fastest)
+  - **Multicall**: Queries 41 specific tokens including yield-bearing (most comprehensive)
+- ✅ **Token Coverage**: 
+  - 13 major stablecoins (USDC, USDT, DAI, FRAX, LUSD, sUSD, PYUSD, TUSD, etc.)
+  - 28 receipt tokens (Aave aTokens, Compound cTokens, Yearn vaults, Curve LP, Convex, sDAI, etc.)
 - ✅ **Raw Data Storage**: Stores complete API responses for future reference
-- ✅ **Fast Processing**: 10 concurrent workers, 3 addresses per API call
+- ✅ **Fast Processing**: 10 concurrent workers (Alchemy) or 100-call batching (Multicall)
 
 ### Dashboard
 - 📈 **Real-time Stats**: Total holders, liquid assets, collection breakdowns
@@ -68,17 +88,20 @@ Opens at: **http://localhost:8501**
 
 ```
 automiladycamp/
-├── rescrape_all.py         # 🔥 Main script - run this!
-├── config.py               # API key & NFT contract addresses
-├── database.py             # SQLite database models
-├── data_fetcher.py         # NFT holder fetcher (Alchemy API)
-├── portfolio_analyzer.py   # Wallet balance analyzer (concurrent)
-├── dashboard.py            # Streamlit web interface
-├── data_exporter.py        # CSV export functionality
-├── requirements.txt        # Python dependencies
-├── run_dashboard.bat       # Dashboard launcher (Windows)
-├── summary.py              # Quick stats in terminal
-└── exports/                # CSV exports (auto-generated)
+├── rescrape_all.py          # 🔥 Main script - Alchemy API (fast)
+├── rescrape_multicall.py    # 🔥 Alt script - Multicall (comprehensive)
+├── config.py                # API key & NFT contract addresses
+├── database.py              # SQLite database models
+├── data_fetcher.py          # NFT holder fetcher (Alchemy API)
+├── portfolio_analyzer.py    # Wallet analyzer (Alchemy Portfolio API)
+├── multicall_analyzer.py    # Wallet analyzer (Multicall batching)
+├── token_list.py            # 41 stablecoins + receipt tokens list
+├── dashboard.py             # Streamlit web interface
+├── data_exporter.py         # CSV export functionality
+├── requirements.txt         # Python dependencies
+├── run_dashboard.bat        # Dashboard launcher (Windows)
+├── summary.py               # Quick stats in terminal
+└── exports/                 # CSV exports (auto-generated)
 ```
 
 ---
