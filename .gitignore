@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Database (will be regenerated)
+*.db
+*.db-wal
+*.db-shm
+
+# Exports (will be regenerated)
+exports/*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Don't commit API key (should be in config.py but just in case)
+api_key.txt
+.api_key
