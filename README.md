@@ -1,12 +1,9 @@
 # 💎 NFT Holder Analysis Tool
 
-Ultra-fast NFT holder tracking and wallet analysis for **Milady** and **CryptoPunks** collections.
-
-Analyzes **9,000+ wallets in under 2 minutes** using concurrent processing and Alchemy's API.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install Dependencies
 ```bash
