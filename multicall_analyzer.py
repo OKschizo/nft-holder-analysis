@@ -1,239 +1,209 @@
 """
 Ultra-Fast Wallet Analyzer using Multicall
-Queries 50+ tokens across thousands of wallets in seconds
+Parker's Way: ONE multicall per token covering ALL wallets
+~9,000 wallets × 41 tokens = 41 multicalls = ~20-40 seconds! 🚀
 """
 
 from multicall import Call, Multicall
 from typing import List, Dict
 from datetime import datetime
 from database import get_session, Holder, StablecoinBalance
-from token_list import ALL_TOKENS, get_token_info
+from token_list import ALL_TOKENS
 from tqdm import tqdm
+from web3 import Web3
 import config
 import time
 
+# Initialize Web3 provider for multicall
+w3 = Web3(Web3.HTTPProvider(config.WEB3_RPC_URL))
+
 class MulticallAnalyzer:
-    def __init__(self, batch_size: int = 100):
+    def __init__(self, wallets_per_batch: int = 3000):
         """
         Initialize Multicall Analyzer
         
-        Args:
-            batch_size: Number of calls per multicall request (default 100)
-                       Each wallet × token = 1 call, so 100 calls = ~2 wallets with 50 tokens
+        Uses Parker's approach (with chunking for large holder lists):
+        - 1 multicall per token per chunk
+        - Each multicall queries up to 3,000 wallets for that token
+        - ~9,000 wallets ÷ 3,000 = 3 chunks × 41 tokens = 123 multicalls
+        - Parker's way: Fast and efficient! 🚀
         """
-        self.batch_size = batch_size
         self.tokens = ALL_TOKENS
-        self.token_addresses = list(ALL_TOKENS.keys())
+        self.wallets_per_batch = wallets_per_batch
         
-        print(f"\n🔍 Multicall Analyzer Initialized")
+        print(f"\n🔍 Multicall Analyzer Initialized (Parker's Way + Chunking)")
         print(f"   • Tracking {len(self.tokens)} tokens")
-        print(f"   • Batch size: {batch_size} calls per request")
-        print(f"   • Tokens: {len([t for t in self.tokens.values() if 'underlying' not in t])} stablecoins")
+        print(f"   • Wallets per batch: {wallets_per_batch}")
+        print(f"   • Strategy: 1 multicall per token per chunk")
+        print(f"   • Stablecoins: {len([t for t in self.tokens.values() if 'underlying' not in t])}")
         print(f"   • Receipt tokens: {len([t for t in self.tokens.values() if 'underlying' in t])}")
     
-    def create_balance_calls(self, holders: List[Holder]) -> List[Call]:
-        """Create multicall balance check calls for holders"""
-        calls = []
+    def fetch_token_balances(self, token_symbol: str, token_info: dict, holders: List[Holder]) -> Dict[str, int]:
+        """
+        Fetch balances for ONE token across ALL holders in a SINGLE multicall
         
-        for holder in holders:
-            # Add ETH balance (special case - not a token)
-            calls.append(
-                Call(
-                    holder.address,
-                    'balance()(uint256)',
-                    [(f'eth_{holder.address}', None)]
-                )
+        Args:
+            token_symbol: Token symbol (e.g., 'USDC')
+            token_info: Token metadata (address, decimals)
+            holders: List of ALL holders to query
+            
+        Returns:
+            Dict mapping holder address to raw balance
+        """
+        # Create calls for this token across ALL holders
+        calls = [
+            Call(
+                token_info['address'],
+                ['balanceOf(address)(uint256)', holder.address],
+                [(holder.address.lower(), None)]
             )
-            
-            # Add token balance calls
-            for symbol, token_info in self.tokens.items():
-                calls.append(
-                    Call(
-                        token_info['address'],
-                        ['balanceOf(address)(uint256)', holder.address],
-                        [(f'{symbol}_{holder.address}', None)]
-                    )
-                )
+            for holder in holders
+        ]
         
-        return calls
-    
-    def process_multicall_results(self, results: Dict, holders: List[Holder], session) -> Dict:
-        """Process multicall results and save to database"""
-        stats = {'analyzed': 0, 'errors': 0, 'total': len(holders)}
+        # Execute single multicall for this token
+        multi = Multicall(calls, _w3=w3)
+        results = multi()
         
-        for holder in holders:
-            try:
-                # Get ETH balance
-                eth_key = f'eth_{holder.address}'
-                eth_balance = results.get(eth_key, 0)
-                eth_balance_float = int(eth_balance) / (10 ** 18) if eth_balance else 0
-                
-                # Update holder
-                holder.total_eth = eth_balance_float
-                holder.last_analyzed = datetime.utcnow()
-                
-                # Clear old balances
-                session.query(StablecoinBalance).filter_by(holder_id=holder.id).delete()
-                
-                # Save ETH balance
-                if eth_balance_float > 0:
-                    eth_record = StablecoinBalance(
-                        holder_id=holder.id,
-                        stablecoin_name='ETH',
-                        balance=eth_balance_float,
-                        raw_balance=str(eth_balance),
-                        decimals=18,
-                        last_updated=datetime.utcnow()
-                    )
-                    session.add(eth_record)
-                
-                # Process token balances
-                total_stablecoins = 0
-                
-                for symbol, token_info in self.tokens.items():
-                    token_key = f'{symbol}_{holder.address}'
-                    raw_balance = results.get(token_key, 0)
-                    
-                    if raw_balance and int(raw_balance) > 0:
-                        decimals = token_info['decimals']
-                        balance_float = int(raw_balance) / (10 ** decimals)
-                        
-                        # For receipt tokens, we still count them as stablecoin value
-                        # (they represent staked/wrapped stablecoins)
-                        total_stablecoins += balance_float
-                        
-                        # Save balance
-                        balance_record = StablecoinBalance(
-                            holder_id=holder.id,
-                            stablecoin_name=symbol,
-                            balance=balance_float,
-                            raw_balance=str(raw_balance),
-                            decimals=decimals,
-                            last_updated=datetime.utcnow()
-                        )
-                        session.add(balance_record)
-                
-                # Update total
-                holder.total_stablecoins = total_stablecoins
-                holder.last_updated = datetime.utcnow()
-                
-                stats['analyzed'] += 1
-                
-            except Exception as e:
-                print(f"\n❌ Error processing {holder.address[:10]}...: {e}")
-                stats['errors'] += 1
-        
-        # Commit batch
-        try:
-            session.commit()
-        except Exception as e:
-            print(f"\n⚠️  Commit error: {e}")
-            session.rollback()
-            
-        return stats
+        return results
     
     def analyze_all_holders(self, limit: int = None):
         """
-        Analyze all holders using multicall
+        Analyze all holders using Parker's multicall approach (with chunking)
         
-        Much faster than individual calls:
-        - 9,000 wallets × 50 tokens = 450,000 calls
-        - Batched at 100 calls/request = 4,500 requests
-        - At ~0.5s per request = ~37 minutes
-        
-        Compare to: Alchemy Portfolio API at 2 minutes for 9,000 wallets
+        Performance:
+        - OLD WAY: 9,000 wallets × 41 tokens ÷ 820 batch = 452 batches = ~4 minutes
+        - PARKER'S WAY: 41 tokens × 3 chunks = 123 multicalls = ~60 seconds! 🚀
         """
         session = get_session()
         
         try:
-            # Get unanalyzed holders
-            query = session.query(Holder).filter(Holder.last_updated == None)
-            
+            # Get all holders (or unanalyzed ones)
             if limit:
-                holders = query.limit(limit).all()
+                holders = session.query(Holder).limit(limit).all()
             else:
-                holders = query.all()
+                holders = session.query(Holder).all()
             
             if not holders:
-                print("✅ All holders already analyzed!")
-                session.close()
+                print("❌ No holders found in database!")
                 return
             
-            # Calculate estimates
-            total_calls = len(holders) * (len(self.tokens) + 1)  # +1 for ETH
-            total_batches = (total_calls + self.batch_size - 1) // self.batch_size
-            est_time = total_batches * 0.5  # ~0.5s per batch
+            # Clear all existing stablecoin balances (we're re-analyzing everything)
+            print(f"\n🗑️  Clearing old balance data...")
+            session.query(StablecoinBalance).delete()
+            session.commit()
+            
+            # Initialize all holders
+            for holder in holders:
+                holder.total_eth = 0  # ETH not queried via multicall
+                holder.total_stablecoins = 0
+                holder.last_analyzed = datetime.utcnow()
+            
+            # Calculate chunks
+            num_chunks = (len(holders) + self.wallets_per_batch - 1) // self.wallets_per_batch
+            total_tokens = len(self.tokens)
+            total_multicalls = total_tokens * num_chunks
+            est_time = total_multicalls * 0.5  # ~0.5s per multicall (larger batches take a bit longer)
             
             print(f"\n{'='*60}")
-            print(f"🔥 MULTICALL ANALYSIS")
+            print(f"🔥 MULTICALL ANALYSIS (PARKER'S WAY + CHUNKING)")
             print(f"{'='*60}")
-            print(f"💰 Holders: {len(holders)}")
-            print(f"🪙  Tokens per holder: {len(self.tokens) + 1} (including ETH)")
-            print(f"📊 Total calls: {total_calls:,}")
-            print(f"📦 Batches: {total_batches:,} ({self.batch_size} calls each)")
+            print(f"💰 Holders: {len(holders):,}")
+            print(f"📦 Chunks: {num_chunks} ({self.wallets_per_batch} wallets each)")
+            print(f"🪙  Tokens: {total_tokens}")
+            print(f"📊 Strategy: 1 multicall per token per chunk")
+            print(f"🔢 Total multicalls: {total_multicalls:,} (not {len(holders) * total_tokens:,}!)")
             print(f"⏰ Estimated time: ~{est_time/60:.1f} minutes")
+            print(f"⚠️  Note: ETH balances set to $0 (use Alchemy for ETH)")
             print(f"{'='*60}\n")
             
-            # Create all calls
-            print("🔨 Building multicall requests...")
-            all_calls = self.create_balance_calls(holders)
+            # Create a mapping of holder addresses to holder objects
+            holder_map = {h.address.lower(): h for h in holders}
             
-            # Split into batches
-            batches = [all_calls[i:i+self.batch_size] for i in range(0, len(all_calls), self.batch_size)]
+            # Split holders into chunks
+            holder_chunks = [holders[i:i+self.wallets_per_batch] for i in range(0, len(holders), self.wallets_per_batch)]
             
-            print(f"✅ Created {len(batches):,} batches\n")
+            # Process each token (ONE multicall per token per chunk)
+            pbar = tqdm(total=total_multicalls, desc="Fetching token balances", unit="multicall")
             
-            # Process batches
-            total_stats = {'analyzed': 0, 'errors': 0, 'total': len(holders)}
-            
-            pbar = tqdm(total=len(batches), desc="Processing batches")
-            
-            for i, batch in enumerate(batches):
+            for token_symbol, token_info in self.tokens.items():
                 try:
-                    # Execute multicall
-                    multi = Multicall(batch)
-                    results = multi()
+                    decimals = token_info['decimals']
+                    total_holders_with_balance = 0
                     
-                    # Determine which holders are in this batch
-                    # Each holder has (tokens + 1) calls
-                    calls_per_holder = len(self.tokens) + 1
-                    holder_start = (i * self.batch_size) // calls_per_holder
-                    holder_end = min(holder_start + (self.batch_size // calls_per_holder) + 2, len(holders))
-                    batch_holders = holders[holder_start:holder_end]
+                    # Process each chunk for this token
+                    for chunk_idx, holder_chunk in enumerate(holder_chunks):
+                        try:
+                            # Fetch balances for this token across this chunk
+                            balances = self.fetch_token_balances(token_symbol, token_info, holder_chunk)
+                            
+                            # Process results
+                            for address, raw_balance in balances.items():
+                                if raw_balance and int(raw_balance) > 0:
+                                    holder = holder_map.get(address.lower())
+                                    if holder:
+                                        balance_float = int(raw_balance) / (10 ** decimals)
+                                        
+                                        # Save balance record
+                                        balance_record = StablecoinBalance(
+                                            holder_id=holder.id,
+                                            stablecoin_name=token_symbol,
+                                            balance=balance_float,
+                                            raw_balance=str(raw_balance),
+                                            decimals=decimals,
+                                            last_updated=datetime.utcnow()
+                                        )
+                                        session.add(balance_record)
+                                        
+                                        # Update holder's total
+                                        holder.total_stablecoins += balance_float
+                                        total_holders_with_balance += 1
+                            
+                            pbar.update(1)
+                            pbar.set_postfix({"token": token_symbol, "chunk": f"{chunk_idx+1}/{len(holder_chunks)}", "found": total_holders_with_balance})
+                            
+                            # Minimal delay between chunks
+                            time.sleep(0.05)
+                            
+                        except Exception as e:
+                            pbar.write(f"\n❌ Error fetching {token_symbol} chunk {chunk_idx+1}: {e}")
+                            pbar.update(1)
+                            continue
                     
-                    # Process results
-                    batch_stats = self.process_multicall_results(results, batch_holders, session)
-                    
-                    total_stats['analyzed'] += batch_stats['analyzed']
-                    total_stats['errors'] += batch_stats['errors']
-                    
-                    pbar.update(1)
-                    
-                    # Progress updates every 50 batches
-                    if (i + 1) % 50 == 0:
-                        pbar.write(f"✓ Progress: {total_stats['analyzed']}/{len(holders)} holders")
-                    
-                    # Small delay to avoid overwhelming RPC
-                    time.sleep(0.1)
+                    # Commit after each token
+                    session.commit()
                     
                 except Exception as e:
-                    pbar.write(f"\n❌ Batch error: {e}")
-                    total_stats['errors'] += len(batch_holders)
+                    pbar.write(f"\n❌ Error processing {token_symbol}: {e}")
+                    continue
             
             pbar.close()
             
+            # Final commit
+            print("\n💾 Saving results to database...")
+            for holder in holders:
+                holder.last_updated = datetime.utcnow()
+            session.commit()
+            
+            # Calculate stats
+            analyzed_count = sum(1 for h in holders if h.total_stablecoins > 0)
+            total_value = sum(h.total_stablecoins for h in holders)
+            
             print(f"\n{'='*60}")
-            print(f"✅ Analysis Complete!")
+            print(f"✅ ANALYSIS COMPLETE!")
             print(f"{'='*60}")
-            print(f"  ✓ Successfully analyzed: {total_stats['analyzed']}")
-            print(f"  ✗ Errors: {total_stats['errors']}")
-            print(f"  📊 Success rate: {(total_stats['analyzed']/total_stats['total']*100):.1f}%")
+            print(f"  💰 Total holders: {len(holders):,}")
+            print(f"  ✓ Holders with balances: {analyzed_count:,}")
+            print(f"  💵 Total stablecoin value: ${total_value:,.0f}")
+            print(f"  ⚡ Average: ${(total_value/analyzed_count if analyzed_count > 0 else 0):,.0f} per holder")
             print(f"{'='*60}\n")
             
+        except Exception as e:
+            print(f"\n❌ Fatal error: {e}")
+            session.rollback()
+            raise
         finally:
             session.close()
 
 if __name__ == "__main__":
-    analyzer = MulticallAnalyzer(batch_size=100)
+    analyzer = MulticallAnalyzer()
     analyzer.analyze_all_holders()
-

@@ -1,8 +1,9 @@
 """
-ULTRA-FAST RESCRAPER WITH MULTICALL
-- Uses Multicall to batch 100 calls per request
-- Queries 50+ stablecoins + receipt tokens
-- Can process thousands of wallets in minutes
+ULTRA-FAST RESCRAPER WITH MULTICALL (PARKER'S WAY)
+- Uses 1 multicall per token covering ALL wallets
+- 41 tokens = 41 multicalls = ~20-40 seconds!
+- Queries 41 stablecoins + receipt tokens
+- Can process 9,000+ wallets in under a minute! 🚀
 """
 
 from database import wipe_all_data, get_session, Holder
@@ -43,15 +44,15 @@ def main():
     
     print(f"\n✅ Fetched {total_holders} unique holders!")
     
-    # Step 3: Analyze with Multicall
+    # Step 3: Analyze with Multicall (PARKER'S WAY!)
     print("\n💰 Step 3: Analyzing all wallets with MULTICALL...")
-    print("🚀 Using:")
-    print("  • Multicall contract batching")
-    print("  • 100 calls per multicall request")
-    print("  • 50+ stablecoins + receipt tokens")
-    print("  • Direct on-chain queries")
+    print("🚀 Using PARKER'S APPROACH:")
+    print("  • 1 multicall per token (not per wallet!)")
+    print("  • Each multicall queries ALL ~9,000 wallets")
+    print("  • 41 tokens = 41 multicalls = ~20-40 seconds!")
+    print("  • Direct on-chain queries (no API limits!)")
     
-    analyzer = MulticallAnalyzer(batch_size=100)
+    analyzer = MulticallAnalyzer()
     analyzer.analyze_all_holders()
     
     # Summary

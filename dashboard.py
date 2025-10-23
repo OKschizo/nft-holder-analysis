@@ -1,45 +1,37 @@
 """
-Milady & CryptoPunks NFT Holder Analysis Dashboard
-Clean, modern interface for analyzing holder wallets and stablecoin balances
+Comprehensive NFT Holder Analysis Dashboard
+Multi-tab interface with deep analytics for Milady & CryptoPunks
 """
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import numpy as np
 from datetime import datetime
 from database import get_session, NFTCollection, Holder, StablecoinBalance, NFTHolding, init_collections
-from data_fetcher import NFTDataFetcher
-from portfolio_analyzer import PortfolioAnalyzer
-from data_exporter import DataExporter
+from token_list import ALL_TOKENS, STABLECOINS, STABLECOIN_RECEIPTS
+import config
 
 # Page config
 st.set_page_config(
-    page_title="Milady & Punks Analysis",
+    page_title="NFT Holder Analytics",
     page_icon="💎",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Initialize database
+init_collections()
+
+# Session
+session = get_session()
+
+# Custom CSS for better visibility
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 3rem;
-        font-weight: bold;
-        background: linear-gradient(90deg, #FF6B9D 0%, #C239B3 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 1rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        color: white;
-    }
     .stMetric {
-        background-color: #1e1e1e !important;
+        background-color: #1e1e1e;
         padding: 1rem;
         border-radius: 8px;
     }
@@ -52,17 +44,6 @@ st.markdown("""
         font-size: 1.8rem !important;
         font-weight: bold !important;
     }
-    .stMetric [data-testid="stMetricDelta"] {
-        color: #a0a0a0 !important;
-    }
-    /* Fix dataframe text */
-    .stDataFrame {
-        color: #000000 !important;
-    }
-    /* Fix markdown text */
-    .stMarkdown {
-        color: #e0e0e0 !important;
-    }
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
     }
@@ -72,515 +53,831 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize database
-init_collections()
+# Helper Functions
+def calculate_gini(values):
+    """Calculate Gini coefficient for wealth inequality"""
+    sorted_values = np.sort(values)
+    n = len(values)
+    cumsum = np.cumsum(sorted_values)
+    return (2 * np.sum((np.arange(1, n + 1)) * sorted_values)) / (n * np.sum(sorted_values)) - (n + 1) / n
 
-# Header
-st.markdown('<p class="main-header">💎 Milady & CryptoPunks Holder Analysis</p>', unsafe_allow_html=True)
-st.markdown("### On-chain wallet analysis and stablecoin tracking")
-st.markdown("---")
+def get_wealth_tier(balance):
+    """Categorize holder by balance"""
+    if balance >= 1000000:
+        return "🐋 Whale"
+    elif balance >= 100000:
+        return "🐬 Dolphin"
+    elif balance >= 10000:
+        return "🐟 Regular"
+    elif balance >= 1000:
+        return "🦐 Small"
+    else:
+        return "✨ Dust"
 
-# Sidebar
-st.sidebar.title("🎛️ Controls")
-
-# Collection toggle
-st.sidebar.markdown("### 👁️ View Collections")
-show_milady = st.sidebar.checkbox("💗 Milady", value=True, key="show_milady")
-show_punks = st.sidebar.checkbox("🔷 CryptoPunks", value=True, key="show_punks")
-
-active_collections = []
-if show_milady:
-    active_collections.append("Milady")
-if show_punks:
-    active_collections.append("CryptoPunks")
-
-if active_collections:
-    st.sidebar.success(f"📊 Viewing: {', '.join(active_collections)}")
-else:
-    st.sidebar.warning("⚠️ Select at least one collection")
-
-st.sidebar.markdown("---")
-
-# Data Management
-st.sidebar.markdown("### 📡 Data Management")
-
-if st.sidebar.button("🔄 Fetch NFT Holders", use_container_width=True):
-    with st.spinner("Fetching NFT holder data from Alchemy..."):
-        try:
-            fetcher = NFTDataFetcher()
-            for name, address in [("Milady", "0x5Af0D9827E0c53E4799BB226655A1de152A425a5"),
-                                   ("CryptoPunks", "0xb47e3cd837dDF8e4c57F05d70Ab865de6e193BBb")]:
-                holders = fetcher.get_nft_holders(address)
-                st.sidebar.info(f"✓ {name}: {len(holders['owners'])} holders")
-            st.sidebar.success("✅ NFT data fetched!")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Error: {e}")
-
-# Wallet Analysis
-st.sidebar.markdown("### 💰 Analyze Wallets")
-analyze_limit = st.sidebar.number_input(
-    "Limit (0 = all)", 
-    min_value=0, 
-    max_value=10000, 
-    value=0,
-    help="Number of wallets to analyze. 0 = analyze all unanalyzed wallets"
-)
-
-col1, col2 = st.sidebar.columns(2)
-
-with col1:
-    if st.button("⚡ Fast", use_container_width=True):
-        with st.spinner("Analyzing wallets..."):
-            try:
-                analyzer = PortfolioAnalyzer()
-                analyzer.analyze_all_holders(limit=analyze_limit if analyze_limit > 0 else None)
-                st.sidebar.success("✅ Analysis complete!")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Error: {e}")
-
-with col2:
-    if st.button("🚀 Ultra", use_container_width=True):
-        with st.spinner("Ultra-fast analysis..."):
-            try:
-                analyzer = PortfolioAnalyzer()
-                analyzer.analyze_all_holders(limit=analyze_limit if analyze_limit > 0 else None)
-                st.sidebar.success("✅ Analysis complete!")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Error: {e}")
-
-st.sidebar.markdown("---")
-
-# Export section
-st.sidebar.markdown("### 📥 Export Data")
-exporter = DataExporter()
-
-if st.sidebar.button("📊 Export All Data", use_container_width=True):
-    try:
-        filename = exporter.export_all_holders()
-        st.sidebar.success(f"✓ Exported: {filename}")
-    except Exception as e:
-        st.sidebar.error(f"Error: {e}")
-
-if st.sidebar.button("🏆 Export Top 100", use_container_width=True):
-    try:
-        filename = exporter.export_top_stablecoin_holders(100)
-        st.sidebar.success(f"✓ Exported: {filename}")
-    except Exception as e:
-        st.sidebar.error(f"Error: {e}")
-
-# Main Dashboard
-session = get_session()
-
-# Get filtered collections
-if active_collections:
-    collections = session.query(NFTCollection).filter(NFTCollection.name.in_(active_collections)).all()
-else:
-    collections = []
-
-# Calculate metrics
-total_holders = 0
-total_nfts = 0
-holders_with_balance = set()
-total_stablecoins = 0
-
-for collection in collections:
-    total_holders += collection.total_holders
-    # Calculate total NFTs from holdings
-    total_nfts += sum(holding.token_count for holding in collection.holdings)
-    for holding in collection.holdings:
-        if holding.holder.total_stablecoins and holding.holder.total_stablecoins > 0:
-            holders_with_balance.add(holding.holder.id)
-            
-# Get all holders for selected collections
-if active_collections:
-    holder_ids = set()
-    for collection in collections:
-        holder_ids.update([h.holder_id for h in collection.holdings])
+def get_sophistication_score(holder):
+    """Calculate DeFi sophistication based on tokens held"""
+    balances = holder.stablecoin_balances
+    protocols = set()
     
-    filtered_holders = session.query(Holder).filter(Holder.id.in_(holder_ids)).all()
-    total_stablecoins = sum([h.total_stablecoins for h in filtered_holders if h.total_stablecoins])
-else:
-    filtered_holders = []
-
-# Top metrics
-st.markdown("## 📊 Overview")
-col1, col2, col3, col4, col5 = st.columns(5)
-
-# Calculate average for non-zero accounts
-holders_with_nonzero = [h for h in filtered_holders if h.total_stablecoins and h.total_stablecoins > 0]
-avg_balance_nonzero = (total_stablecoins / len(holders_with_nonzero)) if holders_with_nonzero else 0
-
-with col1:
-    st.metric(
-        label="👥 Total Holders",
-        value=f"{len(holder_ids) if active_collections else 0:,}",
-        help="Unique wallet addresses holding selected NFTs"
-    )
-
-with col2:
-    st.metric(
-        label="💎 Total NFTs",
-        value=f"{total_nfts:,}",
-        help="Total number of NFTs in selected collections"
-    )
-
-with col3:
-    st.metric(
-        label="💰 With Liquid Assets",
-        value=f"{len(holders_with_balance):,}",
-        help="Holders with ETH or stablecoins > $0"
-    )
-
-with col4:
-    st.metric(
-        label="💵 Total Stablecoins",
-        value=f"${total_stablecoins:,.0f}",
-        help="Combined stablecoin value across all holders"
-    )
-
-with col5:
-    st.metric(
-        label="📊 Avg (Non-Zero)",
-        value=f"${avg_balance_nonzero:,.0f}",
-        help="Average stablecoin balance for holders with non-zero balance"
-    )
-
-st.markdown("---")
-
-# Collection breakdown
-if collections:
-    st.markdown("## 🎨 Collection Breakdown")
+    for bal in balances:
+        token_name = bal.stablecoin_name
+        if token_name.startswith('a'):  # Aave
+            protocols.add('Aave')
+        elif token_name.startswith('c'):  # Compound
+            protocols.add('Compound')
+        elif token_name.startswith('yv'):  # Yearn
+            protocols.add('Yearn')
+        elif 'Crv' in token_name or 'cvx' in token_name:  # Curve/Convex
+            protocols.add('Curve/Convex')
+        elif token_name == 'sDAI':
+            protocols.add('MakerDAO')
     
+    return len(protocols)
+
+# Load all data
+all_holders = session.query(Holder).all()
+collections = session.query(NFTCollection).all()
+
+# Title
+st.title("💎 Comprehensive NFT Holder Analytics")
+st.markdown("### Milady & CryptoPunks - Deep Dive Analysis")
+
+# Create tabs
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    "🏠 Overview",
+    "💰 Stablecoin Deep Dive", 
+    "👥 Holder Segmentation",
+    "💗 Milady Analysis",
+    "🔷 CryptoPunks Analysis",
+    "🤝 Crossover",
+    "🐋 Whales",
+    "🔍 Explorer"
+])
+
+# ===== TAB 1: OVERVIEW =====
+with tab1:
+    st.header("📊 Portfolio Overview")
+
+    # Calculate metrics
+    total_holders = len(all_holders)
+    holders_with_balance = [h for h in all_holders if h.total_stablecoins and h.total_stablecoins > 0]
+    total_stablecoins = sum([h.total_stablecoins for h in all_holders if h.total_stablecoins])
+    avg_balance = total_stablecoins / len(holders_with_balance) if holders_with_balance else 0
+
+    # Top metrics
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    c1.metric("👥 Total Holders", f"{total_holders:,}")
+    c2.metric("💰 With Stablecoins", f"{len(holders_with_balance):,}")
+    c3.metric("💵 Total Value", f"${total_stablecoins:,.0f}")
+    c4.metric("📊 Average", f"${avg_balance:,.0f}")
+
+    # Calculate Gini coefficient
+    balances = [h.total_stablecoins for h in holders_with_balance]
+    gini = calculate_gini(np.array(balances)) if len(balances) > 1 else 0
+    c5.metric("📈 Gini", f"{gini:.3f}", help="Inequality: 0=equal, 1=concentrated")
+
+    st.markdown("---")
+
+    # Collection comparison
+    col1, col2 = st.columns(2)
+
+    for idx, collection in enumerate(collections):
+        with col1 if idx == 0 else col2:
+            st.subheader(f"{'💗' if collection.name == 'Milady' else '🔷'} {collection.name}")
+
+            # Get holders for this collection
+            coll_holder_ids = [h.holder_id for h in collection.holdings]
+            coll_holders = [h for h in all_holders if h.id in coll_holder_ids]
+            coll_with_balance = [h for h in coll_holders if h.total_stablecoins and h.total_stablecoins > 0]
+            coll_total = sum([h.total_stablecoins for h in coll_holders if h.total_stablecoins])
+            coll_avg = coll_total / len(coll_with_balance) if coll_with_balance else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Holders", f"{len(coll_holders):,}")
+            c2.metric("With Balance", f"{len(coll_with_balance):,}")
+            c3.metric("Avg Balance", f"${coll_avg:,.0f}")
+
+            st.info(f"💰 Total: **${coll_total:,.0f}**")
+
+    st.markdown("---")
+
+    # Quick insights
+    st.subheader("💡 Key Insights")
+    
+    # Top 10% concentration
+    top_10_pct_count = max(1, len(holders_with_balance) // 10)
+    top_10_pct_value = sum([h.total_stablecoins for h in sorted(holders_with_balance, key=lambda x: x.total_stablecoins, reverse=True)[:top_10_pct_count]])
+    concentration = (top_10_pct_value / total_stablecoins * 100) if total_stablecoins > 0 else 0
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("🎯 Top 10% Hold", f"{concentration:.1f}%", help="Concentration of wealth in top 10% of holders")
+    
+    with col2:
+        # Yield adoption
+        yield_tokens = [t for t in STABLECOIN_RECEIPTS.keys()]
+        holders_with_yield = len([h for h in all_holders if any(b.stablecoin_name in yield_tokens for b in h.stablecoin_balances)])
+        yield_adoption = (holders_with_yield / len(holders_with_balance) * 100) if holders_with_balance else 0
+        st.metric("🌾 Yield Adoption", f"{yield_adoption:.1f}%", help="% of holders using DeFi yield products")
+    
+    with col3:
+        # Most popular stablecoin
+        token_totals = {}
+        for h in all_holders:
+            for bal in h.stablecoin_balances:
+                if bal.stablecoin_name in STABLECOINS:
+                    token_totals[bal.stablecoin_name] = token_totals.get(bal.stablecoin_name, 0) + bal.balance
+        
+        if token_totals:
+            most_popular = max(token_totals, key=token_totals.get)
+            st.metric("👑 Top Token", most_popular)
+
+# ===== TAB 2: STABLECOIN DEEP DIVE =====
+with tab2:
+    st.header("💰 Stablecoin Deep Dive")
+    
+    # Calculate token breakdown
+    token_data = {}
+    for h in all_holders:
+        for bal in h.stablecoin_balances:
+            token_name = bal.stablecoin_name
+            if token_name != 'ETH':  # Exclude ETH from stablecoin analysis
+                if token_name not in token_data:
+                    token_data[token_name] = {'value': 0, 'holders': set(), 'is_yield': token_name in STABLECOIN_RECEIPTS}
+                token_data[token_name]['value'] += bal.balance
+                token_data[token_name]['holders'].add(h.id)
+    
+    # Convert to dataframe
+    token_df = pd.DataFrame([
+        {
+            'Token': token,
+            'Total Value': data['value'],
+            'Holders': len(data['holders']),
+            'Type': '🌾 Yield' if data['is_yield'] else '💵 Plain',
+            'Avg per Holder': data['value'] / len(data['holders']) if data['holders'] else 0
+        }
+        for token, data in token_data.items()
+        if data['value'] > 0
+    ]).sort_values('Total Value', ascending=False)
+    
+    # Summary metrics
+    plain_value = token_df[token_df['Type'] == '💵 Plain']['Total Value'].sum()
+    yield_value = token_df[token_df['Type'] == '🌾 Yield']['Total Value'].sum()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("💵 Plain Stablecoins", f"${plain_value:,.0f}")
+
+    with col2:
+        st.metric("🌾 Yield-Bearing", f"${yield_value:,.0f}")
+
+    with col3:
+        yield_pct = (yield_value / (plain_value + yield_value) * 100) if (plain_value + yield_value) > 0 else 0
+        st.metric("% in Yield", f"{yield_pct:.1f}%")
+
+    st.markdown("---")
+
+    # Token breakdown charts
     col1, col2 = st.columns(2)
     
-    for idx, collection in enumerate(collections):
-        with col1 if idx % 2 == 0 else col2:
-            with st.container():
-                st.markdown(f"### {collection.name}")
-                
-                # Collection metrics
-                c1, c2, c3, c4 = st.columns(4)
-                
-                with c1:
-                    st.metric("Holders", f"{collection.total_holders:,}")
-                
-                with c2:
-                    # Calculate total supply from holdings
-                    supply = sum(holding.token_count for holding in collection.holdings)
-                    st.metric("Supply", f"{supply:,}")
-                
-                with c3:
-                    # Get holders with balance for this collection
-                    coll_holders_with_balance = len([h for h in collection.holdings 
-                                                     if h.holder.total_stablecoins and h.holder.total_stablecoins > 0])
-                    st.metric("With Assets", f"{coll_holders_with_balance:,}")
-                
-                with c4:
-                    # Average for non-zero holders
-                    coll_total_stable = sum([h.holder.total_stablecoins for h in collection.holdings 
-                                            if h.holder.total_stablecoins])
-                    coll_avg = (coll_total_stable / coll_holders_with_balance) if coll_holders_with_balance > 0 else 0
-                    st.metric("Avg (Non-Zero)", f"${coll_avg:,.0f}")
-                
-                # Total stablecoins for this collection
-                st.info(f"💰 Total Stablecoins: **${coll_total_stable:,.0f}**")
-
-st.markdown("---")
-
-# Stablecoin distribution charts
-if filtered_holders and any(h.total_stablecoins and h.total_stablecoins > 0 for h in filtered_holders):
-    st.markdown("## 📈 Stablecoin Analysis")
+    with col1:
+        st.subheader("📊 Token Distribution")
+        fig = px.pie(
+            token_df.head(10),
+            values='Total Value',
+            names='Token',
+            title='Top 10 Tokens by Value',
+            hole=0.4
+        )
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Get holders with stablecoins
-    holders_with_stable = [h for h in filtered_holders if h.total_stablecoins and h.total_stablecoins > 0]
+    with col2:
+        st.subheader("🏆 Top Tokens")
+        st.dataframe(
+            token_df.head(15)[['Token', 'Total Value', 'Holders', 'Type']].style.format({
+                'Total Value': '${:,.0f}'
+            }),
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Protocol breakdown
+    st.markdown("---")
+    st.subheader("🏛️ DeFi Protocol Adoption")
+    
+    protocol_stats = {
+        'Aave': {'holders': set(), 'value': 0},
+        'Compound': {'holders': set(), 'value': 0},
+        'Yearn': {'holders': set(), 'value': 0},
+        'Curve/Convex': {'holders': set(), 'value': 0},
+        'MakerDAO (sDAI)': {'holders': set(), 'value': 0}
+    }
+    
+    for h in all_holders:
+        for bal in h.stablecoin_balances:
+            token = bal.stablecoin_name
+            if token.startswith('a') and token in STABLECOIN_RECEIPTS:
+                protocol_stats['Aave']['holders'].add(h.id)
+                protocol_stats['Aave']['value'] += bal.balance
+            elif token.startswith('c') and token in STABLECOIN_RECEIPTS:
+                protocol_stats['Compound']['holders'].add(h.id)
+                protocol_stats['Compound']['value'] += bal.balance
+            elif token.startswith('yv'):
+                protocol_stats['Yearn']['holders'].add(h.id)
+                protocol_stats['Yearn']['value'] += bal.balance
+            elif 'Crv' in token or 'cvx' in token:
+                protocol_stats['Curve/Convex']['holders'].add(h.id)
+                protocol_stats['Curve/Convex']['value'] += bal.balance
+            elif token == 'sDAI':
+                protocol_stats['MakerDAO (sDAI)']['holders'].add(h.id)
+                protocol_stats['MakerDAO (sDAI)']['value'] += bal.balance
+    
+    protocol_df = pd.DataFrame([
+        {
+            'Protocol': proto,
+            'Users': len(data['holders']),
+            'Total Value': data['value'],
+            'Avg per User': data['value'] / len(data['holders']) if data['holders'] else 0
+        }
+        for proto, data in protocol_stats.items()
+        if data['value'] > 0
+    ]).sort_values('Total Value', ascending=False)
+    
+    if not protocol_df.empty:
+        fig = px.bar(
+            protocol_df,
+            x='Protocol',
+            y='Total Value',
+            color='Users',
+            title='DeFi Protocol Usage',
+            labels={'Total Value': 'Total Value ($)'}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+# ===== TAB 3: HOLDER SEGMENTATION =====
+with tab3:
+    st.header("👥 Holder Segmentation Analysis")
+    
+    # Categorize holders by wealth tier
+    wealth_tiers = {
+        '🐋 Whale (>$1M)': [],
+        '🐬 Dolphin ($100K-$1M)': [],
+        '🐟 Regular ($10K-$100K)': [],
+        '🦐 Small ($1K-$10K)': [],
+        '✨ Dust (<$1K)': []
+    }
+    
+    for h in holders_with_balance:
+        tier = get_wealth_tier(h.total_stablecoins)
+        for tier_name in wealth_tiers.keys():
+            if tier in tier_name:
+                wealth_tiers[tier_name].append(h)
+                break
+    
+    # Wealth tier metrics
+    st.subheader("💰 Wealth Tier Distribution")
+    
+    tier_data = []
+    for tier_name, tier_holders in wealth_tiers.items():
+        if tier_holders:
+            tier_total = sum([h.total_stablecoins for h in tier_holders])
+            tier_avg = tier_total / len(tier_holders)
+            tier_pct = (tier_total / total_stablecoins * 100) if total_stablecoins > 0 else 0
+            
+            tier_data.append({
+                'Tier': tier_name,
+                'Count': len(tier_holders),
+                'Total Value': tier_total,
+                '% of Total': tier_pct,
+                'Avg Balance': tier_avg
+            })
+    
+    tier_df = pd.DataFrame(tier_data)
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Distribution by stablecoin type
-        st.markdown("### 💎 Stablecoin Distribution")
-        
-        stablecoin_totals = {
-            'USDC': 0,
-            'USDT': 0,
-            'DAI': 0,
-            'ETH': 0
-        }
-        
-        for holder in holders_with_stable:
-            for balance in holder.stablecoin_balances:
-                if balance.stablecoin_name in stablecoin_totals:
-                    stablecoin_totals[balance.stablecoin_name] += balance.balance
-        
-        # Create pie chart
-        fig_pie = go.Figure(data=[go.Pie(
-            labels=list(stablecoin_totals.keys()),
-            values=list(stablecoin_totals.values()),
-            hole=0.4,
-            marker=dict(colors=['#2E86DE', '#54A0FF', '#5F27CD', '#C8D6E5'])
-        )])
-        
-        fig_pie.update_layout(
-            showlegend=True,
-            height=400,
-            margin=dict(t=0, b=0, l=0, r=0)
+        # Tier distribution pie
+        fig = px.pie(
+            tier_df,
+            values='Count',
+            names='Tier',
+            title='Holder Distribution by Tier',
+            hole=0.4
         )
-        
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        # Top holders bar chart
-        st.markdown("### 🏆 Top 10 Holders by Stablecoins")
-        
-        top_holders = sorted(holders_with_stable, key=lambda h: h.total_stablecoins, reverse=True)[:10]
-        
-        df_top = pd.DataFrame([
-            {
-                'Address': h.address[:8] + '...' + h.address[-6:],
-                'Value': h.total_stablecoins
-            }
-            for h in top_holders
-        ])
-        
-        fig_bar = px.bar(
-            df_top,
-            x='Value',
-            y='Address',
-            orientation='h',
-            color='Value',
-            color_continuous_scale='Viridis'
+        # Value distribution
+        fig = px.bar(
+            tier_df,
+            x='Tier',
+            y='% of Total',
+            title='% of Total Value by Tier',
+            color='% of Total',
+            color_continuous_scale='Reds'
         )
-        
-        fig_bar.update_layout(
-            showlegend=False,
-            height=400,
-            xaxis_title="Stablecoin Value ($)",
-            yaxis_title="",
-            margin=dict(t=0, b=0, l=0, r=40)
-        )
-        
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
     
-    # Histogram of holder balances
-    st.markdown("### 📊 Balance Distribution")
-    
-    balance_ranges = {
-        '$0-$1K': 0,
-        '$1K-$10K': 0,
-        '$10K-$50K': 0,
-        '$50K-$100K': 0,
-        '$100K-$500K': 0,
-        '$500K+': 0
-    }
-    
-    for holder in holders_with_stable:
-        val = holder.total_stablecoins
-        if val < 1000:
-            balance_ranges['$0-$1K'] += 1
-        elif val < 10000:
-            balance_ranges['$1K-$10K'] += 1
-        elif val < 50000:
-            balance_ranges['$10K-$50K'] += 1
-        elif val < 100000:
-            balance_ranges['$50K-$100K'] += 1
-        elif val < 500000:
-            balance_ranges['$100K-$500K'] += 1
-        else:
-            balance_ranges['$500K+'] += 1
-    
-    df_dist = pd.DataFrame([
-        {'Range': k, 'Count': v}
-        for k, v in balance_ranges.items()
-    ])
-    
-    fig_hist = px.bar(
-        df_dist,
-        x='Range',
-        y='Count',
-        color='Count',
-        color_continuous_scale='Blues'
-    )
-    
-    fig_hist.update_layout(
-        showlegend=False,
-        height=400,
-        xaxis_title="Balance Range",
-        yaxis_title="Number of Holders"
-    )
-    
-    st.plotly_chart(fig_hist, use_container_width=True)
+    st.dataframe(tier_df.style.format({
+        'Total Value': '${:,.0f}',
+        '% of Total': '{:.1f}%',
+        'Avg Balance': '${:,.0f}'
+    }), use_container_width=True, hide_index=True)
 
-st.markdown("---")
-
-# Punk + Milady Crossover Analysis
-if show_milady and show_punks:
-    st.markdown("## 👥 Milady × CryptoPunks Crossover")
+# ===== TAB 4: MILADY ANALYSIS =====
+with tab4:
+    st.header("💗 Milady Collection Deep Dive")
     
-    milady_coll = session.query(NFTCollection).filter_by(name='Milady').first()
-    punk_coll = session.query(NFTCollection).filter_by(name='CryptoPunks').first()
+    milady_coll = next((c for c in collections if c.name == 'Milady'), None)
     
-    if milady_coll and punk_coll:
-        milady_holder_ids = set([h.holder_id for h in milady_coll.holdings])
-        punk_holder_ids = set([h.holder_id for h in punk_coll.holdings])
-        crossover_ids = milady_holder_ids.intersection(punk_holder_ids)
+    if milady_coll:
+        milady_holder_ids = [h.holder_id for h in milady_coll.holdings]
+        milady_holders = [h for h in all_holders if h.id in milady_holder_ids]
+        milady_with_balance = [h for h in milady_holders if h.total_stablecoins and h.total_stablecoins > 0]
+        milady_total = sum([h.total_stablecoins for h in milady_holders if h.total_stablecoins])
+        milady_avg = milady_total / len(milady_with_balance) if milady_with_balance else 0
         
-        crossover_holders = session.query(Holder).filter(Holder.id.in_(crossover_ids)).all()
-        crossover_holders_sorted = sorted(crossover_holders, key=lambda h: h.total_stablecoins or 0, reverse=True)
-        
-        # Crossover metrics
+        # Top metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("🤝 Crossover Holders", f"{len(crossover_holders):,}")
+            st.metric("👥 Total Holders", f"{len(milady_holders):,}")
         
         with col2:
-            crossover_stable = sum([h.total_stablecoins for h in crossover_holders if h.total_stablecoins])
-            st.metric("💰 Total Stablecoins", f"${crossover_stable:,.0f}")
+            st.metric("💰 With Stablecoins", f"{len(milady_with_balance):,}")
         
         with col3:
-            avg_stable = crossover_stable / len([h for h in crossover_holders if h.total_stablecoins and h.total_stablecoins > 0]) if any(h.total_stablecoins and h.total_stablecoins > 0 for h in crossover_holders) else 0
-            st.metric("📊 Avg Stablecoins", f"${avg_stable:,.0f}")
+            st.metric("💵 Total Value", f"${milady_total:,.0f}")
         
         with col4:
-            percentage = (len(crossover_holders) / len(milady_holder_ids)) * 100
-            st.metric("📈 % of Milady", f"{percentage:.1f}%")
+            st.metric("📊 Average", f"${milady_avg:,.0f}")
         
-        # Filters
-        st.markdown("### 🔍 Filter Crossover Holders")
+        st.markdown("---")
+        
+        # Milady-specific token preferences
+        st.subheader("🪙 Token Preferences")
+        
+        milady_tokens = {}
+        for h in milady_holders:
+            for bal in h.stablecoin_balances:
+                token = bal.stablecoin_name
+                if token != 'ETH':
+                    milady_tokens[token] = milady_tokens.get(token, 0) + bal.balance
+        
+        if milady_tokens:
+            milady_token_df = pd.DataFrame([
+                {'Token': k, 'Value': v}
+                for k, v in sorted(milady_tokens.items(), key=lambda x: x[1], reverse=True)
+            ]).head(10)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(
+                    milady_token_df,
+                    x='Token',
+                    y='Value',
+                    title='Top 10 Tokens in Milady Wallets',
+            color='Value',
+                    color_continuous_scale='Pinkyl'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                # Wealth distribution
+                milady_balances = [h.total_stablecoins for h in milady_with_balance]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=milady_balances,
+                    nbinsx=30,
+                    name='Milady Holders',
+                    marker_color='#FF6B9D'
+                ))
+                fig.update_layout(
+                    title='Milady Balance Distribution',
+                    xaxis_title='Balance ($)',
+                    yaxis_title='Number of Holders',
+                    showlegend=False
+                )
+                fig.update_xaxes(type="log")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Top Milady holders
+        st.subheader("🏆 Top 20 Milady Holders")
+        
+        top_milady = sorted(milady_with_balance, key=lambda x: x.total_stablecoins, reverse=True)[:20]
+        
+        milady_top_data = []
+        for h in top_milady:
+            milady_nfts = next((holding.token_count for holding in h.holdings if holding.collection.name == 'Milady'), 0)
+            milady_top_data.append({
+                'Address': h.address[:12] + '...',
+                'Miladys Owned': milady_nfts,
+                'Stablecoins': h.total_stablecoins,
+                'Protocols': get_sophistication_score(h)
+            })
+        
+        st.dataframe(
+            pd.DataFrame(milady_top_data).style.format({'Stablecoins': '${:,.0f}'}),
+            use_container_width=True,
+            hide_index=True
+        )
+
+# ===== TAB 5: CRYPTOPUNKS ANALYSIS =====
+with tab5:
+    st.header("🔷 CryptoPunks Collection Deep Dive")
+    
+    punk_coll = next((c for c in collections if c.name == 'CryptoPunks'), None)
+    
+    if punk_coll:
+        punk_holder_ids = [h.holder_id for h in punk_coll.holdings]
+        punk_holders = [h for h in all_holders if h.id in punk_holder_ids]
+        punk_with_balance = [h for h in punk_holders if h.total_stablecoins and h.total_stablecoins > 0]
+        punk_total = sum([h.total_stablecoins for h in punk_holders if h.total_stablecoins])
+        punk_avg = punk_total / len(punk_with_balance) if punk_with_balance else 0
+        
+        # Top metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("👥 Total Holders", f"{len(punk_holders):,}")
+        
+        with col2:
+            st.metric("💰 With Stablecoins", f"{len(punk_with_balance):,}")
+        
+        with col3:
+            st.metric("💵 Total Value", f"${punk_total:,.0f}")
+        
+        with col4:
+            st.metric("📊 Average", f"${punk_avg:,.0f}")
+        
+        st.markdown("---")
+        
+        # Punk-specific analysis
+        st.subheader("🪙 Token Preferences")
+        
+        punk_tokens = {}
+        for h in punk_holders:
+            for bal in h.stablecoin_balances:
+                token = bal.stablecoin_name
+                if token != 'ETH':
+                    punk_tokens[token] = punk_tokens.get(token, 0) + bal.balance
+        
+        if punk_tokens:
+            punk_token_df = pd.DataFrame([
+                {'Token': k, 'Value': v}
+                for k, v in sorted(punk_tokens.items(), key=lambda x: x[1], reverse=True)
+            ]).head(10)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(
+                    punk_token_df,
+                    x='Token',
+                    y='Value',
+                    title='Top 10 Tokens in Punk Wallets',
+                    color='Value',
+                    color_continuous_scale='Blues'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                # Wealth distribution
+                punk_balances = [h.total_stablecoins for h in punk_with_balance]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=punk_balances,
+                    nbinsx=30,
+                    name='Punk Holders',
+                    marker_color='#4A90E2'
+                ))
+                fig.update_layout(
+                    title='CryptoPunks Balance Distribution',
+                    xaxis_title='Balance ($)',
+                    yaxis_title='Number of Holders',
+                    showlegend=False
+                )
+                fig.update_xaxes(type="log")
+                st.plotly_chart(fig, use_container_width=True)
+
+# ===== TAB 6: CROSSOVER ANALYSIS =====
+with tab6:
+    st.header("🤝 Crossover Holder Analysis")
+    
+    if len(collections) >= 2:
+        milady_ids = set([h.holder_id for h in collections[0].holdings])
+        punk_ids = set([h.holder_id for h in collections[1].holdings])
+        crossover_ids = milady_ids.intersection(punk_ids)
+        milady_only_ids = milady_ids - punk_ids
+        punk_only_ids = punk_ids - milady_ids
+        
+        crossover_holders = [h for h in all_holders if h.id in crossover_ids]
+        milady_only_holders = [h for h in all_holders if h.id in milady_only_ids]
+        punk_only_holders = [h for h in all_holders if h.id in punk_only_ids]
+        
+        # Calculate stats
+        crossover_total = sum([h.total_stablecoins for h in crossover_holders if h.total_stablecoins])
+        crossover_with_bal = [h for h in crossover_holders if h.total_stablecoins and h.total_stablecoins > 0]
+        crossover_avg = crossover_total / len(crossover_with_bal) if crossover_with_bal else 0
+        
+        milady_only_total = sum([h.total_stablecoins for h in milady_only_holders if h.total_stablecoins])
+        milady_only_with_bal = [h for h in milady_only_holders if h.total_stablecoins and h.total_stablecoins > 0]
+        milady_only_avg = milady_only_total / len(milady_only_with_bal) if milady_only_with_bal else 0
+        
+        punk_only_total = sum([h.total_stablecoins for h in punk_only_holders if h.total_stablecoins])
+        punk_only_with_bal = [h for h in punk_only_holders if h.total_stablecoins and h.total_stablecoins > 0]
+        punk_only_avg = punk_only_total / len(punk_only_with_bal) if punk_only_with_bal else 0
+        
+        # Comparison metrics
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            min_punks = st.slider("Min Punks", 0, 10, 0, key="min_punks")
+            st.markdown("### 🤝 Both Collections")
+            st.metric("Count", f"{len(crossover_holders):,}")
+            st.metric("Total Value", f"${crossover_total:,.0f}")
+            st.metric("Avg (Non-Zero)", f"${crossover_avg:,.0f}")
         
         with col2:
-            min_miladys = st.slider("Min Miladys", 0, 20, 0, key="min_miladys")
+            st.markdown("### 💗 Milady Only")
+            st.metric("Count", f"{len(milady_only_holders):,}")
+            st.metric("Total Value", f"${milady_only_total:,.0f}")
+            st.metric("Avg (Non-Zero)", f"${milady_only_avg:,.0f}")
         
         with col3:
-            min_balance = st.slider("Min Balance ($)", 0, 100000, 0, step=1000, key="min_balance")
+            st.markdown("### 🔷 Punks Only")
+            st.metric("Count", f"{len(punk_only_holders):,}")
+            st.metric("Total Value", f"${punk_only_total:,.0f}")
+            st.metric("Avg (Non-Zero)", f"${punk_only_avg:,.0f}")
         
-        # Build table data
-        if crossover_holders_sorted:
-            crossover_data = []
-            
-            for holder in crossover_holders_sorted:
-                punk_holding = next((h for h in holder.holdings if h.collection.name == 'CryptoPunks'), None)
-                milady_holding = next((h for h in holder.holdings if h.collection.name == 'Milady'), None)
-                
-                punks_count = punk_holding.token_count if punk_holding else 0
-                miladys_count = milady_holding.token_count if milady_holding else 0
-                
-                eth_balance = 0
-                usdc = usdt = dai = 0
-                
-                for sb in holder.stablecoin_balances:
-                    if sb.stablecoin_name == 'ETH':
-                        eth_balance = sb.balance
-                    elif sb.stablecoin_name == 'USDC':
-                        usdc = sb.balance
-                    elif sb.stablecoin_name == 'USDT':
-                        usdt = sb.balance
-                    elif sb.stablecoin_name == 'DAI':
-                        dai = sb.balance
-                
-                row = {
-                    'Address': holder.address[:10] + '...',
-                    'Full Address': holder.address,
-                    'Punks': punks_count,
-                    'Miladys': miladys_count,
-                    'ETH': f"{eth_balance:.4f}",
-                    'USDC': f"${usdc:,.2f}",
-                    'USDT': f"${usdt:,.2f}",
-                    'DAI': f"${dai:,.2f}",
-                    'Total': holder.total_stablecoins or 0,
-                    'Total Display': f"${holder.total_stablecoins:,.2f}" if holder.total_stablecoins else "$0.00"
+        st.markdown("---")
+        
+        # Hypothesis: Are crossover holders richer?
+        st.subheader("💡 Key Finding")
+        
+        if crossover_avg > 0 and milady_only_avg > 0:
+            multiplier = crossover_avg / ((milady_only_avg + punk_only_avg) / 2)
+            st.success(f"🔍 Crossover holders are **{multiplier:.1f}x richer** on average than single-collection holders!")
+        
+        # Venn diagram-style visualization
+        st.subheader("📊 Collection Overlap")
+        
+        venn_data = {
+            'Category': ['Milady Only', 'Both', 'Punks Only'],
+            'Holders': [len(milady_only_holders), len(crossover_holders), len(punk_only_holders)],
+            'Total Value': [milady_only_total, crossover_total, punk_only_total]
+        }
+        
+        venn_df = pd.DataFrame(venn_data)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig = px.bar(
+                venn_df,
+                x='Category',
+                y='Holders',
+                title='Holder Count by Category',
+                color='Category',
+                color_discrete_map={
+                    'Milady Only': '#FF6B9D',
+                    'Both': '#9B59B6',
+                    'Punks Only': '#4A90E2'
                 }
-                
-                crossover_data.append(row)
-            
-            df_crossover = pd.DataFrame(crossover_data)
-            
-            # Apply filters
-            df_filtered = df_crossover[
-                (df_crossover['Punks'] >= min_punks) &
-                (df_crossover['Miladys'] >= min_miladys) &
-                (df_crossover['Total'] >= min_balance)
-            ]
-            
-            st.markdown(f"**Showing {len(df_filtered)} of {len(crossover_holders)} crossover holders**")
-            
-            # Display table
-            display_df = df_filtered.drop(columns=['Full Address', 'Total'])
-            st.dataframe(display_df, width='stretch', hide_index=True, height=400)
-            
-            # Download button
-            csv = df_filtered.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Crossover Data CSV",
-                data=csv,
-                file_name=f'milady_punks_crossover_{datetime.now().strftime("%Y%m%d")}.csv',
-                mime='text/csv',
-                use_container_width=True
             )
-        else:
-            st.info("No crossover holders found.")
-
-st.markdown("---")
-
-# All holders table
-if filtered_holders:
-    st.markdown("## 📋 All Holders")
-    
-    # Build full holders table
-    holders_data = []
-    
-    for holder in sorted(filtered_holders, key=lambda h: h.total_stablecoins or 0, reverse=True):
-        collections_owned = [h.collection.name for h in holder.holdings]
+            st.plotly_chart(fig, use_container_width=True)
         
-        eth_balance = 0
-        for sb in holder.stablecoin_balances:
-            if sb.stablecoin_name == 'ETH':
-                eth_balance = sb.balance
-                break
-        
-        holders_data.append({
-            'Address': holder.address[:12] + '...',
+        with col2:
+            fig = px.bar(
+                venn_df,
+                x='Category',
+                y='Total Value',
+                title='Total Value by Category',
+                color='Category',
+                color_discrete_map={
+                    'Milady Only': '#FF6B9D',
+                    'Both': '#9B59B6',
+                    'Punks Only': '#4A90E2'
+                }
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# ===== TAB 7: WHALE ANALYSIS =====
+with tab7:
+    st.header("🐋 Whale Analysis")
+    
+    # Top 100 holders
+    top_100 = sorted(holders_with_balance, key=lambda x: x.total_stablecoins, reverse=True)[:100]
+    top_100_total = sum([h.total_stablecoins for h in top_100])
+    top_100_pct = (top_100_total / total_stablecoins * 100) if total_stablecoins > 0 else 0
+    
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("🐋 Top 100 Hold", f"${top_100_total:,.0f}")
+    
+    with col2:
+        st.metric("📊 % of Total", f"{top_100_pct:.1f}%")
+    
+    with col3:
+        st.metric("💎 Avg Whale", f"${top_100_total/100:,.0f}")
+    
+    with col4:
+        top_10_total = sum([h.total_stablecoins for h in top_100[:10]])
+        top_10_pct = (top_10_total / total_stablecoins * 100) if total_stablecoins > 0 else 0
+        st.metric("🎯 Top 10 Hold", f"{top_10_pct:.1f}%")
+    
+    st.markdown("---")
+    
+    # Top holders table
+    st.subheader("🏆 Top 50 Holders")
+    
+    whale_data = []
+    for rank, h in enumerate(top_100[:50], 1):
+        collections_owned = [holding.collection.name for holding in h.holdings]
+        whale_data.append({
+            'Rank': rank,
+            'Address': h.address[:14] + '...',
             'Collections': ', '.join(collections_owned),
-            'NFTs': holder.total_nfts,
-            'ETH': f"{eth_balance:.4f}",
-            'Stablecoins': f"${holder.total_stablecoins:,.2f}" if holder.total_stablecoins else "$0.00"
+            'Stablecoins': h.total_stablecoins,
+            'Tier': get_wealth_tier(h.total_stablecoins),
+            'DeFi Score': get_sophistication_score(h)
         })
     
-    df_all = pd.DataFrame(holders_data)
+    st.dataframe(
+        pd.DataFrame(whale_data).style.format({'Stablecoins': '${:,.0f}'}),
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
     
-    # Search filter
-    search_term = st.text_input("🔍 Search by address", "")
+    st.markdown("---")
     
-    if search_term:
-        df_all = df_all[df_all['Address'].str.contains(search_term, case=False)]
+    # Concentration curve
+    st.subheader("📈 Wealth Concentration")
     
-    st.dataframe(df_all, width='stretch', hide_index=True, height=500)
+    sorted_balances = sorted([h.total_stablecoins for h in holders_with_balance], reverse=True)
+    cumulative_pct = np.cumsum(sorted_balances) / sum(sorted_balances) * 100
+    holder_pct = np.arange(1, len(sorted_balances) + 1) / len(sorted_balances) * 100
     
-    # Download all data
-    csv_all = df_all.to_csv(index=False)
-    st.download_button(
-        label="📥 Download All Holders CSV",
-        data=csv_all,
-        file_name=f'all_holders_{datetime.now().strftime("%Y%m%d")}.csv',
-        mime='text/csv',
-        use_container_width=True
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=holder_pct,
+        y=cumulative_pct,
+        mode='lines',
+        name='Cumulative Wealth',
+        fill='tozeroy'
+    ))
+    fig.add_trace(go.Scatter(
+        x=[0, 100],
+        y=[0, 100],
+        mode='lines',
+        name='Perfect Equality',
+        line=dict(dash='dash', color='red')
+    ))
+    fig.update_layout(
+        title='Lorenz Curve - Wealth Concentration',
+        xaxis_title='% of Holders (poorest to richest)',
+        yaxis_title='% of Total Wealth',
+        height=400
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# ===== TAB 8: WALLET EXPLORER =====
+with tab8:
+    st.header("🔍 Wallet Explorer")
+    
+    # Search
+    search_address = st.text_input("🔎 Enter wallet address:")
+    
+    if search_address:
+        found_holder = next((h for h in all_holders if search_address.lower() in h.address.lower()), None)
+        
+        if found_holder:
+            st.success(f"✅ Found: {found_holder.address}")
+            
+            # Holder details
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                nft_count = sum([holding.token_count for holding in found_holder.holdings])
+                st.metric("NFTs Owned", nft_count)
+            
+            with col2:
+                st.metric("Stablecoins", f"${found_holder.total_stablecoins or 0:,.2f}")
+            
+            with col3:
+                collections_owned = [holding.collection.name for holding in found_holder.holdings]
+                st.metric("Collections", len(collections_owned))
+            
+            with col4:
+                soph_score = get_sophistication_score(found_holder)
+                st.metric("DeFi Protocols", soph_score)
+            
+            st.markdown("---")
+            
+            # Collections owned
+            st.subheader("🎨 NFT Holdings")
+            for holding in found_holder.holdings:
+                st.info(f"**{holding.collection.name}**: {holding.token_count} NFT(s)")
+            
+            # Token balances
+            st.subheader("💰 Token Balances")
+            
+            if found_holder.stablecoin_balances:
+                balance_data = []
+                for bal in found_holder.stablecoin_balances:
+                    if bal.balance > 0:
+                        balance_data.append({
+                            'Token': bal.stablecoin_name,
+                            'Balance': bal.balance,
+                            'Type': '🌾 Yield' if bal.stablecoin_name in STABLECOIN_RECEIPTS else '💵 Plain'
+                        })
+                
+                if balance_data:
+                    st.dataframe(
+                        pd.DataFrame(balance_data).sort_values('Balance', ascending=False).style.format({'Balance': '${:,.2f}'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+            else:
+                st.info("No stablecoin balances found")
+        else:
+            st.warning("Address not found in database")
+
+    st.markdown("---")
+
+    # Browse all holders
+    st.subheader("📋 Browse All Holders")
+
+    # Filters
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        min_balance = st.number_input("Min Balance ($)", min_value=0, value=0, step=1000)
+    
+    with col2:
+        collection_filter = st.selectbox("Collection", ["All", "Milady", "CryptoPunks", "Both"])
+    
+    with col3:
+        sort_by = st.selectbox("Sort By", ["Stablecoins (High)", "Stablecoins (Low)", "NFTs Owned"])
+    
+    # Apply filters
+    filtered_holders = holders_with_balance
+    
+    if min_balance > 0:
+        filtered_holders = [h for h in filtered_holders if h.total_stablecoins >= min_balance]
+    
+    if collection_filter != "All":
+        if collection_filter == "Both":
+            milady_ids = set([h.holder_id for h in milady_coll.holdings])
+            punk_ids = set([h.holder_id for h in punk_coll.holdings])
+            both_ids = milady_ids.intersection(punk_ids)
+            filtered_holders = [h for h in filtered_holders if h.id in both_ids]
+        else:
+            coll = next((c for c in collections if c.name == collection_filter), None)
+            if coll:
+                coll_ids = set([h.holder_id for h in coll.holdings])
+                filtered_holders = [h for h in filtered_holders if h.id in coll_ids]
+    
+    # Sort
+    if sort_by == "Stablecoins (High)":
+        filtered_holders = sorted(filtered_holders, key=lambda x: x.total_stablecoins, reverse=True)
+    elif sort_by == "Stablecoins (Low)":
+        filtered_holders = sorted(filtered_holders, key=lambda x: x.total_stablecoins)
+    else:
+        filtered_holders = sorted(filtered_holders, key=lambda x: x.total_nfts, reverse=True)
+    
+    # Display
+    browse_data = []
+    for h in filtered_holders[:100]:  # Limit to 100 for performance
+        collections_owned = [holding.collection.name for holding in h.holdings]
+        browse_data.append({
+            'Address': h.address[:16] + '...',
+            'Collections': ', '.join(collections_owned),
+            'NFTs': h.total_nfts,
+            'Stablecoins': h.total_stablecoins,
+            'Wealth Tier': get_wealth_tier(h.total_stablecoins)
+        })
+    
+    st.write(f"Showing {len(browse_data)} of {len(filtered_holders)} holders")
+    
+    st.dataframe(
+        pd.DataFrame(browse_data).style.format({'Stablecoins': '${:,.0f}'}),
+        use_container_width=True,
+        hide_index=True,
+        height=500
     )
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666; padding: 2rem;'>
-    <p>💎 Milady & CryptoPunks Holder Analysis</p>
-    <p style='font-size: 0.9rem;'>Data powered by Alchemy API • Built with Streamlit</p>
-</div>
-""", unsafe_allow_html=True)
-
+# Close session
 session.close()
 

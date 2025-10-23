@@ -66,11 +66,6 @@ STABLECOINS = {
         'decimals': 6,
         'name': 'PayPal USD'
     },
-    'USDC.e': {
-        'address': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  # Bridged USDC
-        'decimals': 6,
-        'name': 'Bridged USDC'
-    },
 }
 
 # Yield-Bearing Stablecoin Receipt Tokens
@@ -300,8 +295,9 @@ def get_token_count():
     return len(ALL_TOKENS)
 
 # Summary
-print(f"📊 Token List Summary:")
-print(f"  • Stablecoins: {len(STABLECOINS)}")
-print(f"  • Receipt Tokens: {len(STABLECOIN_RECEIPTS)}")
-print(f"  • Total: {len(ALL_TOKENS)}")
+if __name__ == "__main__":
+    print(f"Token List Summary:")
+    print(f"  - Stablecoins: {len(STABLECOINS)}")
+    print(f"  - Receipt Tokens: {len(STABLECOIN_RECEIPTS)}")
+    print(f"  - Total: {len(ALL_TOKENS)}")
 
